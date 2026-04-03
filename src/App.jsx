@@ -1,304 +1,345 @@
 import { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import {
-  Activity,
-  AlertTriangle,
-  BarChart3,
-  CheckCircle2,
-  Database,
-  FileDown,
-  FileSpreadsheet,
-  Filter,
-  Gauge,
-  Info,
-  Menu,
-  Moon,
-  Search,
-  ShieldAlert,
-  Upload,
-  UserCheck,
-  Users,
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, Search, ShieldX, UploadCloud } from 'lucide-react';
 import {
   Bar,
   BarChart,
-  CartesianGrid,
   Cell,
-  Legend,
-  Line,
-  LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  RadialBar,
+  RadialBarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 
-const navItems = [
-  { key: 'overview', label: 'Dashboard Overview', icon: BarChart3 },
-  { key: 'upload', label: 'Data Upload', icon: Upload },
-  { key: 'signals', label: 'Feature Signals', icon: Activity },
-  { key: 'results', label: 'Detection Results', icon: ShieldAlert },
-  { key: 'explain', label: 'Explanation & Justification', icon: Info },
-  { key: 'audit', label: 'Audit & Reports', icon: FileSpreadsheet },
-  { key: 'algorithm', label: 'Algorithm Overview', icon: Gauge },
-];
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 
-const accountData = [
-  { username: 'tech_enthusiast_2024', score: 92.3, category: 'Fake' },
-  { username: 'start_and_design_hub', score: 58.2, category: 'Suspicious' },
-  { username: 'digital_nomad_life', score: 8.5, category: 'Genuine' },
-  { username: 'market_watch_daily', score: 42.9, category: 'Suspicious' },
-  { username: 'city_food_trails', score: 16.4, category: 'Genuine' },
-  { username: 'crypto_giveaway_now', score: 86.1, category: 'Fake' },
-];
-
-const COLORS = { Genuine: '#22C55E', Suspicious: '#FACC15', Fake: '#EF4444' };
-const BADGES = {
-  Genuine: 'bg-[#DCFCE7] text-[#166534]',
-  Suspicious: 'bg-[#FEF3C7] text-[#92400E]',
-  Fake: 'bg-[#FEE2E2] text-[#991B1B]',
+const STATUS_COLORS = {
+  'Genuine influencer': 'bg-emerald-100 text-emerald-700',
+  'Fake influencer': 'bg-rose-100 text-rose-700',
 };
 
-const card = 'bg-white rounded-xl border border-[#E5E7EB] shadow-sm';
+const PIE_COLORS = ['#22C55E', '#F59E0B', '#EF4444'];
 
-const Fade = ({ children, className = '' }) => (
-  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }} className={className}>
-    {children}
-  </motion.div>
-);
-
-function StatCard({ label, value, icon: Icon, iconColor = 'text-[#3B82F6]' }) {
+function SummaryCard({ label, value, Icon, tone = 'text-slate-800' }) {
   return (
-    <div className={`${card} p-5`}>
-      <div className="flex items-start justify-between">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-[#6B7280]">{label}</p>
-          <p className="mt-2 text-3xl font-semibold text-[#111827]">{value}</p>
+          <p className="text-xs text-slate-500">{label}</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
         </div>
-        <div className="rounded-lg bg-[#F9FAFB] p-2">
-          <Icon size={20} className={iconColor} />
-        </div>
+        <Icon className={tone} size={20} />
       </div>
     </div>
   );
 }
 
 function App() {
-  const [active, setActive] = useState('overview');
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [file, setFile] = useState(null);
+  const [results, setResults] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('All');
-  const [page, setPage] = useState(1);
-  const perPage = 4;
 
-  const stats = useMemo(() => {
-    const total = accountData.length;
-    const genuine = accountData.filter((a) => a.category === 'Genuine').length;
-    const suspicious = accountData.filter((a) => a.category === 'Suspicious').length;
-    const fake = accountData.filter((a) => a.category === 'Fake').length;
-    return { total, genuine, suspicious, fake };
-  }, []);
+  const selected = useMemo(
+    () => results.find((item) => item.insta_id === selectedId) ?? results[0],
+    [results, selectedId],
+  );
 
-  const filtered = accountData.filter((item) => {
-    const matchSearch = item.username.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === 'All' || item.category === filter;
-    return matchSearch && matchFilter;
-  });
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return results;
+    return results.filter(
+      (item) =>
+        item.influencer_name.toLowerCase().includes(q) ||
+        item.insta_id.toLowerCase().includes(q) ||
+        item.category.toLowerCase().includes(q),
+    );
+  }, [results, search]);
 
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  const totals = useMemo(() => {
+    return filtered.reduce(
+      (acc, item) => {
+        acc.influencers += 1;
+        acc.followers += item.total_followers;
+        acc.genuine += item.genuine_count;
+        acc.suspicious += item.suspicious_count;
+        acc.bot += item.bot_count;
+        return acc;
+      },
+      { influencers: 0, followers: 0, genuine: 0, suspicious: 0, bot: 0 },
+    );
+  }, [filtered]);
 
-  const scoreBins = [
-    { range: '0-20', count: 1 },
-    { range: '21-40', count: 0 },
-    { range: '41-60', count: 2 },
-    { range: '61-80', count: 0 },
-    { range: '81-100', count: 2 },
-  ];
+  const uploadAndAnalyze = async () => {
+    if (!file) {
+      setError('Please choose a CSV file first.');
+      return;
+    }
 
-  const content = {
-    overview: (
-      <Fade className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Total Accounts" value={stats.total} icon={Users} />
-          <StatCard label="Genuine Accounts" value={stats.genuine} icon={CheckCircle2} iconColor="text-[#166534]" />
-          <StatCard label="Suspicious Accounts" value={stats.suspicious} icon={AlertTriangle} iconColor="text-[#92400E]" />
-          <StatCard label="Fake Accounts" value={stats.fake} icon={ShieldAlert} iconColor="text-[#991B1B]" />
-        </div>
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className={`${card} p-5`}>
-            <h3 className="mb-4 text-lg font-semibold">Category Distribution</h3>
-            <div className="h-72">
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie data={[{ name: 'Genuine', value: stats.genuine }, { name: 'Suspicious', value: stats.suspicious }, { name: 'Fake', value: stats.fake }]} dataKey="value" nameKey="name" outerRadius={90}>
-                    {['Genuine', 'Suspicious', 'Fake'].map((k) => <Cell key={k} fill={COLORS[k]} />)}
-                  </Pie>
-                  <Legend />
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className={`${card} p-5`}>
-            <h3 className="mb-4 text-lg font-semibold">Suspicion Score Distribution</h3>
-            <div className="h-72">
-              <ResponsiveContainer>
-                <BarChart data={scoreBins}>
-                  <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
-                  <XAxis dataKey="range" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#3B82F6" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      </Fade>
-    ),
-    upload: (
-      <Fade>
-        <div className="mx-auto max-w-4xl space-y-4">
-          <div className={`${card} p-6`}>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold">Upload Dataset</h3>
-              <button className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-[#2563EB]">Upload CSV</button>
-            </div>
-            <div className="mb-4 rounded-xl border-2 border-dashed border-[#E5E7EB] bg-[#F9FAFB] p-8 text-center text-[#6B7280]">Drag & Drop CSV File Here</div>
-            <div className="mb-3 flex items-center justify-between text-sm text-[#6B7280]"><span>Rows: {accountData.length}</span><button className="rounded-lg border border-[#E5E7EB] px-3 py-1.5 hover:shadow-sm">Reset</button></div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border border-[#E5E7EB] text-sm">
-                <thead className="bg-[#F9FAFB]"><tr><th className="border-b border-[#E5E7EB] p-3 text-left">Username</th><th className="border-b border-[#E5E7EB] p-3 text-left">Suspicion Score</th><th className="border-b border-[#E5E7EB] p-3 text-left">Category</th></tr></thead>
-                <tbody>{accountData.map((r) => <tr key={r.username}><td className="border-b border-[#E5E7EB] p-3">{r.username}</td><td className="border-b border-[#E5E7EB] p-3">{r.score}%</td><td className="border-b border-[#E5E7EB] p-3">{r.category}</td></tr>)}</tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </Fade>
-    ),
-    signals: (
-      <Fade className="space-y-4">
-        {[
-          { title: 'Profile Metadata Signals', desc: 'Signals derived from account profile structure and completeness.' },
-          { title: 'Engagement Signals', desc: 'Interaction consistency across likes, comments, and share behaviors.' },
-          { title: 'Temporal Activity Signals', desc: 'Posting rhythm and activity burst analysis over time.' },
-        ].map((sec) => (
-          <div key={sec.title} className={`${card} p-5`}>
-            <h3 className="text-lg font-semibold">{sec.title}</h3>
-            <p className="mb-4 text-sm text-[#6B7280]">{sec.desc}</p>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="h-48"><ResponsiveContainer><LineChart data={[{ x: 'W1', y: 40 }, { x: 'W2', y: 56 }, { x: 'W3', y: 35 }, { x: 'W4', y: 61 }]}><CartesianGrid stroke="#E5E7EB" /><XAxis dataKey="x" /><YAxis /><Tooltip /><Line type="monotone" dataKey="y" stroke="#3B82F6" /></LineChart></ResponsiveContainer></div>
-              <div className="h-48"><ResponsiveContainer><BarChart data={[{ x: 'A', y: 20 }, { x: 'B', y: 32 }, { x: 'C', y: 15 }]}><CartesianGrid stroke="#E5E7EB" /><XAxis dataKey="x" /><YAxis /><Tooltip /><Bar dataKey="y" fill="#3B82F6" /></BarChart></ResponsiveContainer></div>
-              <div className="flex items-center justify-center rounded-xl border border-[#E5E7EB] bg-[#F9FAFB]"><div className="text-center"><p className="text-sm text-[#6B7280]">Signal Ratio</p><p className="text-3xl font-semibold">0.71</p></div></div>
-            </div>
-          </div>
-        ))}
-      </Fade>
-    ),
-    results: (
-      <Fade className="space-y-4">
-        <div className="rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] p-3 text-sm text-[#1D4ED8]">Model Used: Weighted Multi-Signal Heuristic Scoring Algorithm</div>
-        <div className={`${card} p-5`}>
-          <div className="mb-4 flex flex-wrap gap-3">
-            <div className="relative"><Search className="absolute left-2 top-2.5 text-[#6B7280]" size={16} /><input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search username" className="rounded-lg border border-[#E5E7EB] py-2 pl-8 pr-3 text-sm" /></div>
-            <div className="relative"><Filter className="absolute left-2 top-2.5 text-[#6B7280]" size={16} /><select value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1); }} className="rounded-lg border border-[#E5E7EB] py-2 pl-8 pr-3 text-sm"><option>All</option><option>Genuine</option><option>Suspicious</option><option>Fake</option></select></div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
-              <thead><tr className="border-b border-[#E5E7EB] text-[#6B7280]"><th className="p-3 text-left">Username</th><th className="p-3 text-left">Suspicion Score</th><th className="p-3 text-left">Category Badge</th><th className="p-3 text-left">Action</th></tr></thead>
-              <tbody>{paginated.map((r) => <tr key={r.username} className="border-b border-[#E5E7EB]"><td className="p-3">{r.username}</td><td className="p-3"><div className="w-52 rounded-full bg-[#E5E7EB]"><div className="h-2 rounded-full bg-[#3B82F6]" style={{ width: `${r.score}%` }} /></div><span className="text-xs text-[#6B7280]">{r.score}%</span></td><td className="p-3"><span className={`rounded-full px-2 py-1 text-xs font-medium ${BADGES[r.category]}`}>{r.category}</span></td><td className="p-3"><button className="rounded-lg bg-[#3B82F6] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#2563EB]">View Explanation</button></td></tr>)}</tbody>
-            </table>
-          </div>
-          <div className="mt-4 flex items-center justify-between text-sm"><span className="text-[#6B7280]">Page {page} of {totalPages}</span><div className="space-x-2"><button onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded border border-[#E5E7EB] px-2 py-1">Prev</button><button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="rounded border border-[#E5E7EB] px-2 py-1">Next</button></div></div>
-        </div>
-      </Fade>
-    ),
-    explain: (
-      <Fade className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className={`${card} p-5 space-y-3`}>
-          <h3 className="text-lg font-semibold">Account Summary</h3>
-          <p className="text-sm text-[#6B7280]">tech_enthusiast_2024</p>
-          <div className="flex items-center gap-2"><p className="text-4xl font-semibold">92.3%</p><Info size={16} className="text-[#6B7280]" title="Score computed using weighted multi-signal heuristic model." /></div>
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${BADGES.Fake}`}>Fake</span>
-        </div>
-        <div className={`${card} p-5 space-y-4`}>
-          <h3 className="text-lg font-semibold">Analysis Summary</h3>
-          <p className="text-sm text-[#6B7280]">High-risk characteristics include abnormal follower ratio, repetitive posting behavior, and suspicious username pattern. Rules Triggered: 7.</p>
-          {[['Follower Ratio', 95], ['Engagement Rate', 84], ['Posting Frequency', 78], ['Username Pattern', 90]].map(([k, v]) => <div key={k}><div className="mb-1 flex justify-between text-sm"><span>{k}</span><span>{v}%</span></div><div className="h-2 rounded-full bg-[#E5E7EB]"><div className="h-2 rounded-full bg-[#3B82F6]" style={{ width: `${v}%` }} /></div></div>)}
-        </div>
-      </Fade>
-    ),
-    audit: (
-      <Fade className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <StatCard label="Audited Accounts" value={stats.total} icon={Database} />
-          <StatCard label="Flagged" value={stats.suspicious + stats.fake} icon={AlertTriangle} iconColor="text-[#92400E]" />
-          <StatCard label="Report Time" value="2026-02-11" icon={FileDown} />
-        </div>
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className={`${card} p-5`}>
-            <h3 className="mb-4 text-lg font-semibold">Audit Category Split</h3>
-            <div className="h-64"><ResponsiveContainer><PieChart><Pie data={[{ name: 'Genuine', value: stats.genuine }, { name: 'Suspicious', value: stats.suspicious }, { name: 'Fake', value: stats.fake }]} dataKey="value" outerRadius={80}>{['Genuine', 'Suspicious', 'Fake'].map((k) => <Cell key={k} fill={COLORS[k]} />)}</Pie><Legend /></PieChart></ResponsiveContainer></div>
-          </div>
-          <div className={`${card} p-5 space-y-3`}>
-            <h3 className="text-lg font-semibold">Suspicious Account List</h3>
-            {accountData.filter((a) => a.category !== 'Genuine').map((a) => <div key={a.username} className="flex items-center justify-between rounded-lg border border-[#E5E7EB] p-3"><span>{a.username}</span><span className={`rounded-full px-2 py-1 text-xs ${BADGES[a.category]}`}>{a.category}</span></div>)}
-            <div className="flex gap-2"><button className="rounded-lg bg-[#3B82F6] px-3 py-2 text-sm text-white hover:bg-[#2563EB]">Export CSV</button><button className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-sm">Export PDF</button></div>
-          </div>
-        </div>
-      </Fade>
-    ),
-    algorithm: (
-      <Fade className="space-y-6">
-        <div className={`${card} p-5`}>
-          <h3 className="text-lg font-semibold">Detection Algorithm</h3>
-          <p className="text-sm text-[#6B7280]">Weighted Multi-Signal Heuristic Scoring Model</p>
-          <div className="mt-4 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-4 text-sm">
-            Suspicion Score =<br />(w1 × Follower Ratio) +<br />(w2 × Engagement Rate) +<br />(w3 × Posting Frequency) +<br />(w4 × Username Pattern)
-          </div>
-          <p className="mt-3 text-sm text-[#6B7280]">The model aggregates normalized features with interpretable weights and maps the final score to risk thresholds for actionable decision support.</p>
-        </div>
-        <div className={`${card} p-5`}>
-          <h3 className="mb-4 text-lg font-semibold">Algorithm Flow Steps</h3>
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">{['Data Acquisition', 'Feature Extraction', 'Weight Assignment', 'Score Aggregation', 'Threshold Classification'].map((s, i) => <div key={s} className="relative rounded-lg border border-[#E5E7EB] p-3"><div className="mb-2 h-6 w-6 rounded-full bg-[#3B82F6] text-center text-sm text-white">{i + 1}</div><p className="text-sm font-medium">{s}</p><p className="text-xs text-[#6B7280]">Step {i + 1} of pipeline.</p>{i < 4 && <span className="hidden lg:block absolute -right-2 top-1/2 text-[#9CA3AF]">→</span>}</div>)}</div>
-        </div>
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className={`${card} p-5`}>
-            <h3 className="mb-4 text-lg font-semibold">Feature Weight Contribution</h3>
-            <div className="h-72"><ResponsiveContainer><BarChart data={[{ f: 'Follower Ratio', w: 25 }, { f: 'Engagement Rate', w: 25 }, { f: 'Posting Frequency', w: 20 }, { f: 'Username Pattern', w: 20 }, { f: 'Profile Completeness', w: 10 }]} layout="vertical"><CartesianGrid stroke="#E5E7EB" /><XAxis type="number" unit="%" /><YAxis type="category" dataKey="f" width={130} /><Tooltip /><Bar dataKey="w" fill="#3B82F6" /></BarChart></ResponsiveContainer></div>
-          </div>
-          <div className={`${card} p-5`}>
-            <h3 className="mb-4 text-lg font-semibold">Threshold Visualization</h3>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-[#E5E7EB] bg-[#DCFCE7] p-4 text-[#166534]"><p className="font-semibold">Genuine</p><p className="text-sm">Score &lt; 0.3</p></div>
-              <div className="rounded-lg border border-[#E5E7EB] bg-[#FEF3C7] p-4 text-[#92400E]"><p className="font-semibold">Suspicious</p><p className="text-sm">0.3 – 0.6</p></div>
-              <div className="rounded-lg border border-[#E5E7EB] bg-[#FEE2E2] p-4 text-[#991B1B]"><p className="font-semibold">Fake</p><p className="text-sm">0.6+</p></div>
-            </div>
-          </div>
-        </div>
-      </Fade>
-    ),
+    setLoading(true);
+    setError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_BASE}/analyze`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const info = await response.json().catch(() => ({}));
+        throw new Error(info.detail || 'Failed to analyze CSV');
+      }
+
+      const payload = await response.json();
+      setResults(payload);
+      setSelectedId(payload[0]?.insta_id ?? null);
+    } catch (err) {
+      setError(err.message || 'Unexpected error');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const downloadReport = () => {
+    if (!results.length) return;
+
+    const headers = [
+      'influencer_name',
+      'category',
+      'insta_id',
+      'total_followers',
+      'genuine_count',
+      'suspicious_count',
+      'bot_count',
+      'credibility_score',
+      'status',
+    ];
+
+    const lines = results.map((item) =>
+      headers.map((h) => JSON.stringify(item[h] ?? '')).join(','),
+    );
+
+    const blob = new Blob([[headers.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'influencer_audit_report.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const pieData =
+    selected && selected.total_followers
+      ? [
+          { name: 'Genuine', value: selected.genuine_count },
+          { name: 'Suspicious', value: selected.suspicious_count },
+          { name: 'Bot', value: selected.bot_count },
+        ]
+      : [];
+
+  const explainData =
+    selected
+      ? [
+          {
+            name: 'ProfileScore',
+            value: Number((selected.profile_contribution * 100).toFixed(2)),
+          },
+          {
+            name: 'EngagementScore',
+            value: Number((selected.engagement_contribution * 100).toFixed(2)),
+          },
+          {
+            name: 'TemporalScore',
+            value: Number((selected.temporal_contribution * 100).toFixed(2)),
+          },
+        ]
+      : [];
+
   return (
-    <div className="min-h-screen bg-[#F4F5F9] text-[#111827]">
-      <header className="fixed inset-x-0 top-0 z-20 border-b border-[#E5E7EB] bg-white">
-        <div className="mx-auto flex h-20 max-w-[1600px] items-center justify-between px-4 lg:px-6">
-          <div className="flex items-center gap-3">
-            <button className="rounded-md p-2 lg:hidden" onClick={() => setMobileOpen((v) => !v)}><Menu size={18} /></button>
-            <div><h1 className="text-2xl font-bold">Suspicious Follower Detection System</h1><p className="text-sm text-[#6B7280]">Heuristic & Explainable Analysis Dashboard</p></div>
+    <div className="min-h-screen bg-slate-50 px-4 py-6 text-slate-800 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h1 className="text-2xl font-bold">Influencer Credibility Audit Dashboard</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Upload grouped influencer-follower CSV data, detect fake followers, and audit credibility using entropy-weighted risk scoring.
+          </p>
+        </header>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100">
+                <UploadCloud size={16} />
+                <span>{file ? file.name : 'Choose CSV'}</span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <button
+                onClick={uploadAndAnalyze}
+                disabled={loading}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={16} /> Analyzing...
+                  </span>
+                ) : (
+                  'Run Audit'
+                )}
+              </button>
+              <button
+                onClick={downloadReport}
+                disabled={!results.length}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Download Report CSV
+              </button>
+            </div>
+            <div className="relative w-full lg:w-80">
+              <Search size={15} className="absolute left-3 top-2.5 text-slate-500" />
+              <input
+                className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm"
+                placeholder="Search influencer/category/insta_id"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
-          <button className="rounded-lg border border-[#E5E7EB] p-2"><Moon size={16} className="text-[#6B7280]" /></button>
-        </div>
-      </header>
-      <div className="mx-auto flex max-w-[1600px] pt-20">
-        <aside className={`fixed left-0 top-20 h-[calc(100vh-80px)] w-72 border-r border-[#E5E7EB] bg-white p-4 transition-transform lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <nav className="space-y-1">{navItems.map((n) => { const Icon = n.icon; const isActive = active === n.key; return <button key={n.key} onClick={() => { setActive(n.key); setMobileOpen(false); }} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm ${isActive ? 'bg-[#EFF6FF] text-[#3B82F6]' : 'text-[#374151] hover:bg-[#F9FAFB]'}`}><Icon size={16} />{n.label}</button>; })}</nav>
-        </aside>
-        <main className="w-full p-4 lg:ml-72 lg:p-6">{content[active]}</main>
+          {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard label="Influencers" value={totals.influencers} Icon={CheckCircle2} tone="text-blue-600" />
+          <SummaryCard label="Followers Audited" value={totals.followers.toLocaleString()} Icon={CheckCircle2} tone="text-emerald-600" />
+          <SummaryCard label="Suspicious Followers" value={totals.suspicious.toLocaleString()} Icon={AlertTriangle} tone="text-amber-600" />
+          <SummaryCard label="Bot Followers" value={totals.bot.toLocaleString()} Icon={ShieldX} tone="text-rose-600" />
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:p-6">
+          <h2 className="mb-3 text-lg font-semibold">Audit Table</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="px-3 py-2">Influencer Name</th>
+                  <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Insta ID</th>
+                  <th className="px-3 py-2">Total Followers</th>
+                  <th className="px-3 py-2">Genuine</th>
+                  <th className="px-3 py-2">Suspicious</th>
+                  <th className="px-3 py-2">Bot</th>
+                  <th className="px-3 py-2">Credibility</th>
+                  <th className="px-3 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((item) => (
+                  <tr
+                    key={item.insta_id}
+                    onClick={() => setSelectedId(item.insta_id)}
+                    className={`cursor-pointer border-b border-slate-100 ${selected?.insta_id === item.insta_id ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                  >
+                    <td className="px-3 py-2 font-medium">{item.influencer_name}</td>
+                    <td className="px-3 py-2">{item.category}</td>
+                    <td className="px-3 py-2">{item.insta_id}</td>
+                    <td className="px-3 py-2">{item.total_followers.toLocaleString()}</td>
+                    <td className="px-3 py-2">{item.genuine_count.toLocaleString()}</td>
+                    <td className="px-3 py-2">{item.suspicious_count.toLocaleString()}</td>
+                    <td className="px-3 py-2">{item.bot_count.toLocaleString()}</td>
+                    <td className="px-3 py-2">{(item.credibility_score * 100).toFixed(2)}%</td>
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full px-2 py-1 text-xs font-medium ${STATUS_COLORS[item.status] ?? 'bg-slate-100 text-slate-700'}`}>
+                        {item.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {selected && (
+          <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="mb-3 font-semibold">Credibility Gauge</h3>
+              <div className="h-60">
+                <ResponsiveContainer>
+                  <RadialBarChart
+                    innerRadius="65%"
+                    outerRadius="95%"
+                    barSize={18}
+                    data={[{ name: 'credibility', value: selected.credibility_score * 100 }]}
+                    startAngle={180}
+                    endAngle={0}
+                  >
+                    <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                    <RadialBar dataKey="value" fill="#2563EB" cornerRadius={9} background />
+                    <Tooltip formatter={(v) => `${Number(v).toFixed(2)}%`} />
+                  </RadialBarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="-mt-4 text-center text-2xl font-bold text-slate-900">{(selected.credibility_score * 100).toFixed(2)}%</p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="mb-3 font-semibold">Follower Class Distribution</h3>
+              <div className="h-60">
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={85} label>
+                      {pieData.map((entry, index) => (
+                        <Cell key={`cell-${entry.name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="mb-3 font-semibold">Explainability Contributions</h3>
+              <div className="h-60">
+                <ResponsiveContainer>
+                  <BarChart data={explainData}>
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => `${v}%`} />
+                    <Tooltip formatter={(v) => `${v}%`} />
+                    <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#0EA5E9" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {selected && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm lg:p-6">
+            <h3 className="text-lg font-semibold">Explainability Summary</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Credibility is computed as <strong>(Ng + 0.5 × Ns) / N</strong> and status is determined from follower risk composition.
+            </p>
+            <ul className="mt-3 list-inside list-disc text-sm text-slate-700">
+              {(selected.reasons ?? []).map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   );
